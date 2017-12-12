@@ -1,0 +1,15 @@
+#!/bin/bash
+
+#  Ubuntu User
+sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+service sshd restart
+echo "ubuntu:ubuntu" | chpasswd
+
+# Proxy
+echo 'Acquire::http::Proxy "http://apt-cacher-01.priv.enst-bretagne.fr:3142";' > /etc/apt/apt.conf.d/01proxy
+
+# system update
+apt-get update && apt -y dist-upgrade
+apt-get clean
+
+

@@ -1,0 +1,103 @@
+heat_template_version: ocata
+
+description: Deploiement d'une instance sur un reseau existant
+
+parameters:
+  instance_name:
+    type: string
+    label: Nom de l'instance
+    description: Nom de l'instance
+    default: demo1Test
+
+  network_name:
+    type: string
+    label: Reseau interne
+    description: Nom ou ID du reseau interne
+    default: demoPrivateNet8
+
+  public_network:
+    type: string
+    label: Reseau externe
+    description: Nom ou ID du reseau externe
+    default: external
+
+  admin_secgroup_name:
+    type: string
+    label: Admin security_group
+    description: demo1AdminAccess
+
+  pass_ubuntu:
+    type: string
+    label: Ubuntu user password
+    description: Mot de passe de l'utilisateur Ubuntu
+    default: qianyuan
+    hidden: true
+
+
+resources:
+  server1:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: instance_name } 
+      image: "Ubuntu_16.04.latest"
+      flavor: "OS-small"
+      networks:
+        - port: { get_resource: server1_port }
+      user_data: 
+        str_replace:
+          template: |
+            #!/bin/bash
+            sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+            service sshd restart
+            echo "ubuntu:$PASS_UBUNTU" | chpasswd
+            echo 'Acquire::http::Proxy "http://apt-cacher-01.priv.enst-bretagne.fr:3142";' > /etc/apt/apt.conf.d/01proxy
+            apt-get update
+            apt -y dist-upgrade
+            apt-get clean
+            apt install -y sudo vim vim-nox lynx zip binutils wget openssl ssl-cert ssh
+            apt install -y bridge-utils git python-pip 
+            export http_proxy=http://proxy.enst-bretagne.fr:8080
+            export https_proxy=http://proxy.enst-bretagne.fr:8080
+            export no_proxy=`hostname -I`
+            echo 'http_proxy=http://proxy.enst-bretagne.fr:8080' >> /etc/environment
+            echo 'https_proxy=http://proxy.enst-bretagne.fr:8080' >> /etc/environment
+            echo 'no_proxy=localhost,127.0.0.1,'`hostname -I`  >> /etc/environment
+            echo `hostname -I`'       controller'  >> /etc/hosts
+            pip install --upgrade pip
+            pip install  -U os-testr
+            groupadd stack
+            useradd -g stack       -s /bin/bash -d /home/stack  -m  stack
+            cd /etc/sudoers.d
+            echo "stack ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/50_stack_sh
+            chmod 440 /etc/sudoers.d/50_stack_sh
+            cd /home/stack
+            git clone https://git.openstack.org/openstack-dev/devstack
+            cd devstack
+            git checkout stable/ocata
+            echo '[[local|localrc]]' > local.conf
+            echo 'ADMIN_PASSWORD=stack' >> local.conf
+            echo 'DATABASE_PASSWORD=stack' >> local.conf
+            echo 'RABBIT_PASSWORD=stack' >> local.conf
+            echo 'SERVICE_PASSWORD=stack' >> local.conf
+            echo 'GIT_BASE=https://git.openstack.org'  >> local.conf
+            echo 'USE_SCREEN=FALSE'  >> local.conf
+            echo 'PIP_UPGRADE=True'  >> local.conf
+            chown -R stack.stack /home/stack/devstack
+            su -l stack -c "cd devstack; ./stack.sh"
+          params:
+           $PASS_UBUNTU: {get_param: pass_ubuntu}       
+  
+  server1_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: network_name }
+      security_groups: [ { get_param: admin_secgroup_name }, ]
+  
+  server1_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_network }
+      port_id: { get_resource: server1_port }
+
+
+

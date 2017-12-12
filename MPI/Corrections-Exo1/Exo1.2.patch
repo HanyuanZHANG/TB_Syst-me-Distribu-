@@ -1,0 +1,105 @@
+--- ../ref/Exo1/mpi-example.c	2007-08-17 09:26:28.000000000 +0200
++++ ../Exo1/mpi-example.c	2010-10-11 11:53:36.229671000 +0200
+@@ -1,12 +1,15 @@
+ #include <stdio.h>
++#include <string.h>
+ #include "mpi.h"
+ 
++#define MAX_LENGTH 100 /* maximum length of exchanged strings, excluding '\0' */
+ 
+ int main(int argc, char *argv[])
+ {
+   MPI_Status status;
+-  int i,j, num, rank, size, tag,   nbslaves;
+-  char inputstr [100],outstr [100];
++  int i,j, cutsize, num, rank, size, tag,   nbslaves;
++  char inputstr[MAX_LENGTH+1], outstr[MAX_LENGTH+1];
++
+ 
+   /* Start up MPI */
+ 
+@@ -22,39 +25,34 @@
+ 
+   if (rank == 0) {
+ 
+-  /* Begin User Program  - the master */
++    if (strlen(argv[1]) > MAX_LENGTH * nbslaves) {
++      printf("The string to convert is too long, shrinking\n");
++      argv[1][MAX_LENGTH*nbslaves]='\0';
++    }
++
++    /* Begin User Program  - the master */
+      printf("number of arguments in the command line %d  \n", argc);
+ 
+      printf("I 'll convert  %s using %d slaves \n", argv [1], nbslaves);
+ 
+-    /* send data to slave tasks */
+-    for( i=1 ; i < nbslaves+1 ; i++ ) {
+-
+-     /* prepare the data to be sent 
+-        There should be a better way with C string functions ....  */
+-
+-      if (i == (nbslaves )) {
+-
+-         for (j=(strlen(argv [1]) / nbslaves) * (i-1); j <= strlen(argv [1]); j++) {
+-            outstr [j - ((strlen(argv [1]) / nbslaves) * (i-1))] = argv [1] [j];
+-         }
+-         outstr [j+1] = '\0';
+-
+-      }
+-      else {
+-        for (j=(strlen(argv [1]) / nbslaves) * (i-1);
+-             j <= ((strlen(argv [1])  / nbslaves) * i) -1; j++) {
+-            outstr [j - ((strlen(argv [1]) / nbslaves) * (i-1))] = argv [1] [j];
+-         }
+-         outstr [j+1] = '\0';
+-      }
++     cutsize = strlen(argv[1]) / nbslaves * sizeof(char);
+ 
++    /* send data to slave tasks */
++    for( i=0 ; i < nbslaves ; i++ ) {
++      /* prepare the data to be sent */
++      /* We cut argv[1] into nbslaves pieces; the (nbslaves-1) 1st pieces
++	 have a length equal to cutsize, the last one has a maximum length of
++	 (cutsize + strlen(argv[1]) modulo nbslaves) < cutsize+nbslaves */
++      strncpy(outstr, argv[1]+(i*cutsize), cutsize+nbslaves);
++      if (i != (nbslaves-1)) // The last part already contains \0, no need to add it
++	outstr[cutsize]='\0';
+ 
+     printf("Process sending %s to %d\n", outstr, i);
+-    MPI_Send(outstr, strlen(outstr), MPI_CHAR, i, tag, MPI_COMM_WORLD); 
++
++    MPI_Send(outstr, strlen(outstr)+1, MPI_CHAR, i+1, tag, MPI_COMM_WORLD); 
+   }
+     for( i=1 ; i < nbslaves+1 ; i++ ) {
+-    MPI_Recv(&inputstr, 100, MPI_CHAR, i, tag+1, MPI_COMM_WORLD, &status);
++    MPI_Recv(&inputstr, MAX_LENGTH+1, MPI_CHAR, i, tag+1, MPI_COMM_WORLD, &status);
+     printf("Process receiving %s from node %d \n", inputstr, i);
+     }
+     }
+@@ -63,21 +61,21 @@
+ 
+ else {
+ 
+-    MPI_Recv(&inputstr, 100, MPI_CHAR, 0, tag, MPI_COMM_WORLD, &status);
++    MPI_Recv(&inputstr, MAX_LENGTH+1, MPI_CHAR, 0, tag, MPI_COMM_WORLD, &status);
+  
+-
+     /* Do upper-case translation with data */
+-    for (i=0; inputstr [i] != '\0' && (i < 100); i++)
++    for (i=0; inputstr [i] != '\0' && (i < MAX_LENGTH); i++)
+         /*
+          * The function toupper() converts ASCII characters
+            to upper case.
+          */
+         outstr[i] = toupper(inputstr[i]);
+-        outstr[i+1] = '\0';
+ 
++    outstr[i] = '\0';
+     MPI_Send(outstr, strlen(outstr)+1 , MPI_CHAR, 0, tag+1, MPI_COMM_WORLD); 
+ }
+ 
++  fflush(stdout);
+   MPI_Finalize();
+   return 0;
+ }
